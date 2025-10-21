@@ -9,7 +9,7 @@ import torch
 from ragognizer.detectors.detector import HallucinationDetector
 import torch.nn as nn
 from huggingface_hub import snapshot_download
-from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig
+from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, GenerationConfig
 from peft import PeftModel
 import json
 from transformer_heads import load_lora_with_heads
@@ -71,6 +71,7 @@ class RAGognizer(HallucinationDetector):
         if ragognizer_repo_name is not None and checkpoint_dir is not None:
             raise ValueError("Please provide only one of ragognizer_repo_name or checkpoint_dir, not both.")
 
+        self.ragognizer_repo_name = ragognizer_repo_name
         self.use_transformer_heads = use_transformer_heads_library
         if checkpoint_dir is None:
             repo_dir = snapshot_download(ragognizer_repo_name, repo_type="model")
@@ -212,6 +213,62 @@ class RAGognizer(HallucinationDetector):
 
         return cevs.detach()
 
+    def _pack_probs(
+        self,
+        probs,
+        input_ids,
+        original_chat,
+        return_assistant_only,
+        only_readable_tokens,
+    ):
+        token_spans = []
+        for ti in range(probs.shape[0]):
+            tok = self.detokenize([input_ids[0, ti]])
+            tokens_str = self.detokenize([input_ids[0, :ti+1]])
+            if len(tok) > 0:
+                prob = probs[ti].item()
+                if self.binarization_threshold is not None:
+                    pred = 1 if prob >= self.binarization_threshold else 0
+                else:
+                    pred = None
+                token_spans.append({
+                    "start": len(tokens_str) - len(tok),
+                    "text": tok,
+                    "end": len(tokens_str),
+                    "prob": prob,
+                    "pred": pred,
+                })
+
+        if return_assistant_only:
+            try:
+                assistant_starts_at = self.detokenize(input_ids).rindex(original_chat[-1]["content"])
+            except:
+                # For some models whitespace gets removed, so we do stripping to find start
+                assistant_starts_at = self.detokenize(input_ids).rindex(original_chat[-1]["content"].strip())
+
+            new_spans = []
+            for span in token_spans:
+                if span["start"] >= assistant_starts_at:
+                    span["start"] -= assistant_starts_at
+                    span["end"]   -= assistant_starts_at
+                    new_spans.append(span)
+            token_spans = new_spans
+        
+        if only_readable_tokens and return_assistant_only:
+            response = None
+            for msg in original_chat:
+                if msg["role"] == "assistant":
+                    response = msg["content"]
+                    break
+            else:
+                print(f"WARNING: Could not find assistant's message in the following chat:\n{original_chat}")
+                return token_spans
+
+            # Remove tokens that are not part of the real response (e.g. "[SEP]")
+            return self._ensure_tokens_in_response(response=response, token_prediction=token_spans)
+        else:
+            return token_spans
+
     def _predict(
         self,
         chat: list[dict[str, str]] = None,
@@ -274,38 +331,14 @@ class RAGognizer(HallucinationDetector):
             print(text_row)
             print(prob_row)
 
-        token_spans = []
-        for ti in range(probs.shape[0]):
-            tok = self.detokenize([input_ids[0, ti]])
-            tokens_str = self.detokenize([input_ids[0, :ti+1]])
-            if len(tok) > 0:
-                prob = probs[ti].item()
-                if self.binarization_threshold is not None:
-                    pred = 1 if prob >= self.binarization_threshold else 0
-                else:
-                    pred = None
-                token_spans.append({
-                    "start": len(tokens_str) - len(tok),
-                    "text": tok,
-                    "end": len(tokens_str),
-                    "prob": prob,
-                    "pred": pred,
-                })
-
-        if return_assistant_only:
-            try:
-                assistant_starts_at = self.detokenize(input_ids).rindex(original_chat[-1]["content"])
-            except:
-                # For some models whitespace gets removed, so we do stripping to find start
-                assistant_starts_at = self.detokenize(input_ids).rindex(original_chat[-1]["content"].strip())
-
-            new_spans = []
-            for span in token_spans:
-                if span["start"] >= assistant_starts_at:
-                    span["start"] -= assistant_starts_at
-                    span["end"]   -= assistant_starts_at
-                    new_spans.append(span)
-            token_spans = new_spans
+        # Pack probs and tokens into a readable and nice dict/list format
+        to_return = self._pack_probs(
+            probs=probs,
+            input_ids=input_ids,
+            original_chat=original_chat,
+            return_assistant_only=return_assistant_only,
+            only_readable_tokens=only_readable_tokens
+        )
 
         del model_inputs, input_ids, probs
         if 'cevs' in locals():
@@ -318,20 +351,7 @@ class RAGognizer(HallucinationDetector):
         torch.cuda.empty_cache()
         gc.collect()
         
-        if only_readable_tokens and return_assistant_only:
-            response = None
-            for msg in original_chat:
-                if msg["role"] == "assistant":
-                    response = msg["content"]
-                    break
-            else:
-                print(f"WARNING: Could not find assistant's message in the following chat:\n{original_chat}")
-                return token_spans
-
-            # Remove tokens that are not part of the real response (e.g. "[SEP]")
-            return self._ensure_tokens_in_response(response=response, token_prediction=token_spans)
-        else:
-            return token_spans
+        return to_return
     
     def predict(
         self,
@@ -410,6 +430,74 @@ class RAGognizer(HallucinationDetector):
         else:
             return self._aggregate_to_response_level(token_level_pred=pred)
         
+    def generate(
+        self,
+        chat: list[dict[str, str]],
+        max_new_tokens : int= 512,
+        do_sample: bool = False,
+        temperature: float = 0.0,
+        return_hallucination_scores: bool = True,
+    ):
+        if self.ragognizer_repo_name in [
+            "F4biian/RAGognizer-Llama-3.1-8B-Instruct",
+            "F4biian/RAGognizer-Mistral-7B-Instruct-v0.1",
+            "F4biian/RAGognizer-Mistral-7B-Instruct-v0.3",
+        ]:
+            raise Exception(
+                f"We don't recommend using `{self.ragognizer_repo_name}` for generations, since it was observed that it lost certain language capabilities."
+            )
+
+        gen_config = GenerationConfig(
+            _pad_token_tensor=None,
+            max_new_tokens=max_new_tokens,
+            do_sample=do_sample,
+            temperature=temperature,
+            eos_token_id=self.tokenizer.eos_token_id
+        )
+
+        if self.use_transformer_heads:
+            self.llm.generation_config = gen_config
+
+        input_ids = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, return_tensors="pt")
+        output = self.llm.generate(torch.tensor(input_ids.tolist()).to("cuda"), generation_config=gen_config)
+        assistant_starts_at = len(input_ids[0])
+
+        if self.use_transformer_heads:
+            response = self.tokenizer.decode(output.sequences[0][assistant_starts_at:], skip_special_tokens=True)
+            if return_hallucination_scores:
+                for key in output.head_outputs:
+                    if "hallu" in key:
+                        probs = torch.sigmoid(output.head_outputs[key].flatten()).cpu().detach().numpy()
+                        chat += [{
+                            "role": "assistant",
+                            "content": response,
+                        }]
+                        scores = self._pack_probs(
+                            probs=probs,
+                            input_ids=output.sequences[:, -len(probs):],
+                            original_chat=chat,
+                            return_assistant_only=False,
+                            only_readable_tokens=True,
+                        )
+                        break
+                else:
+                    raise Exception(
+                        "Failed to find the head for token level hallucination prediction."
+                    )
+        else:
+            response = self.tokenizer.decode(output[0][assistant_starts_at:], skip_special_tokens=True)
+            if return_hallucination_scores:
+                chat += [{
+                    "role": "assistant",
+                    "content": response,
+                }]
+                scores = self.predict(chat=chat, token_level=True, return_assistant_only=True)
+
+        if return_hallucination_scores:
+            return response, scores
+
+        return response
+
 
 if __name__ == "__main__":
     from argparse import ArgumentParser
@@ -426,14 +514,14 @@ if __name__ == "__main__":
     # python ragognizer/detectors/RAGognizer.py --cpdir /path/to/checkpoint/dir
 
     with torch.no_grad():
-        det = RAGognizer(
+        ragognizer = RAGognizer(
             ragognizer_repo_name=args.repo_name,
             use_transformer_heads_library=not args.mlp,
             checkpoint_dir=args.cpdir,
             device=args.device,
         )
 
-        result1 = det.predict(
+        result1 = ragognizer.predict(
             document="Albert Einstein developed the theory of relativity in the early 20th century and won the Nobel Prize in Physics in 1921.",
             user="When did Einstein develop the theory of relativity and what did he win the Nobel Prize for?",
             response="Einstein developed the theory of relativity in 1915 and won the Nobel Prize for it in 1921.",
@@ -443,10 +531,22 @@ if __name__ == "__main__":
 
         print("\n"*5)
 
-        result2 = det.predict(
+        result2 = ragognizer.predict(
             document="In 2018, Microsoft acquired GitHub for $7.5 billion in stock. GitHub continued to operate independently as a subsidiary.",
             user="Who acquired GitHub and for how much?",
             response="Google acquired GitHub for $7.5 billion in cash.",
             token_level=True,
             verbose=True,
         )
+
+        response = ragognizer.generate([
+            {
+                "role": "user",
+                "content": (
+                    "Use this context to shortly answer the user's question:\n"
+                    "<context>\nAlbert Einstein developed the theory of relativity in the early 20th century and won the Nobel Prize in Physics in 1921.\n</context>\n\n"
+                    "<user>When did Einstein develop the theory of relativity and what did he win the Nobel Prize for?</user>"
+                ),
+            }
+        ])
+        print(response)
