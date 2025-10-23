@@ -1,6 +1,7 @@
 from dotenv import find_dotenv, load_dotenv
 load_dotenv(find_dotenv(), override=True)
 
+import numpy as np
 import os
 import gc
 import jinja2
@@ -8,6 +9,7 @@ from typing import Literal
 import torch
 from ragognizer.detectors.detector import HallucinationDetector
 import torch.nn as nn
+from torch.utils.data import DataLoader, TensorDataset
 from huggingface_hub import snapshot_download
 from transformers import AutoTokenizer, AutoModelForCausalLM, AutoConfig, GenerationConfig
 from peft import PeftModel
@@ -16,6 +18,23 @@ from transformer_heads import load_lora_with_heads
 from transformer_heads.util.helpers import get_model_params
 from transformer_heads.constants import model_type_map as TRANSFORMER_HEADS_ARCH_MAP
 
+
+class PostProcessor(torch.nn.Module):
+    def __init__(self, input_length: int):
+        super().__init__()
+
+        self.seq = torch.nn.Sequential(
+            torch.nn.Linear(input_length, input_length*4),
+            torch.nn.ReLU(),
+            torch.nn.Linear(input_length*4, input_length*2),
+            torch.nn.ReLU(),
+            torch.nn.Linear(input_length*2, input_length),
+            torch.nn.ReLU(),
+            torch.nn.Linear(input_length, 1),
+        )
+
+    def forward(self, x):
+        return self.seq(x)
 
 class MLP(nn.Module):
     def __init__(self, input_size, hidden_dims):
@@ -52,7 +71,9 @@ class RAGognizer(HallucinationDetector):
         ] = "F4biian/RAGognizer-Qwen3-4B-Instruct-2507",
         checkpoint_dir: str = None,
         device: str = "cuda",
-        use_transformer_heads_library: bool=True
+        use_transformer_heads_library: bool=True,
+        use_postprocessor: bool=False,
+        postprocessor_batch_size: int=256,
     ) -> None:
         """
         Initialize the RAGognizer detector.
@@ -62,6 +83,8 @@ class RAGognizer(HallucinationDetector):
             checkpoint_dir (str, optional): The directory of the checkpoint. Defaults to None.
             device (str, optional): The device to run the model on. Defaults to "cuda".
             use_transformer_heads_library (bool, optional): Whether to use the transformer_heads library. Defaults to True.
+            use_postprocessor (bool, optional): !EXPERIMENTAL! Whether to use a tiny postprocessing MLP on the token scores for potentially boosting token-level performance. This feature is not supported by every model. Defaults to False.
+            postprocessor_batch_size (int, optional): If a postprocessor is used, this will be the batch size for predicting the post-processed scores.
 
         Raises:
             ValueError: If neither or both of ragognizer_repo_name and checkpoint_dir are provided
@@ -73,6 +96,10 @@ class RAGognizer(HallucinationDetector):
 
         self.ragognizer_repo_name = ragognizer_repo_name
         self.use_transformer_heads = use_transformer_heads_library
+        self.use_postprocessor = use_postprocessor
+        self.device = device
+        self.postprocessor_batch_size = postprocessor_batch_size
+
         if checkpoint_dir is None:
             repo_dir = snapshot_download(ragognizer_repo_name, repo_type="model")
             checkpoint_dir = os.path.join(repo_dir, "ft_llm")
@@ -84,6 +111,8 @@ class RAGognizer(HallucinationDetector):
         name = f"RAGognizer ({llm_name})"
         if not self.use_transformer_heads:
             name += " (sep. MLP)"
+        if self.use_postprocessor:
+            name += " (PP)"
         super().__init__(name=name, aggregate_response_level_from_token_level=True)
 
         self.tokenizer = AutoTokenizer.from_pretrained(adapter_config["base_model_name_or_path"], device_map=device)
@@ -124,6 +153,8 @@ class RAGognizer(HallucinationDetector):
                 except:
                     other_data = {}
 
+            self.postprocessor_kernel_size = other_data.get("postprocessor_kernel_size", None)
+
             # Account for a potentially added PAD token (offset of 1)
             embeddings_offset = other_data.get("new_embeddings_added", 0)
             self.llm = load_lora_with_heads(
@@ -157,6 +188,18 @@ class RAGognizer(HallucinationDetector):
             
             self.layer_perc = other_data["layer_perc"]
             self.binarization_threshold = other_data["binarization_threshold"]
+            self.postprocessor_kernel_size = other_data.get("postprocessor_kernel_size", None)
+
+        self.postprocessor = None
+        if self.use_postprocessor:
+            if self.postprocessor_kernel_size is None:
+                raise ValueError(
+                    "You enabled postprocessing. This is not supported by the current model."
+                )
+            else:
+                self.postprocessor = PostProcessor(self.postprocessor_kernel_size*4+2)
+                self.postprocessor.load_state_dict(torch.load(os.path.join(checkpoint_dir, "..", "postprocessor_state.pt")))
+                self.postprocessor.to(device).eval()
 
         self.llm.requires_grad_(False)
         self.llm.eval()
@@ -212,6 +255,39 @@ class RAGognizer(HallucinationDetector):
         del output
 
         return cevs.detach()
+
+    def make_postprocess_input(self, assistant_probs, kernel_size, padding_value=-1.0):
+        n = len(assistant_probs)
+        window_size = 2 * kernel_size + 1
+        X = np.zeros((n, window_size * 2), dtype=np.float32)
+
+        padded = np.pad(assistant_probs, (kernel_size,), constant_values=padding_value)
+
+        for i in range(n):
+            window = padded[i : i + window_size]
+            mask = (window == padding_value).astype(np.float32)
+            X[i, :] = np.concatenate([window, mask])
+
+        return X
+
+    def postprocess(self, assistant_probs):
+        postprocess_input = self.make_postprocess_input(assistant_probs, kernel_size=self.postprocessor_kernel_size, padding_value=-1.0)
+
+        dataset = TensorDataset(torch.tensor(postprocess_input, dtype=torch.float32))
+        loader = DataLoader(dataset, batch_size=self.postprocessor_batch_size, shuffle=False)
+
+        self.postprocessor.eval()
+        all_outputs = []
+
+        with torch.no_grad():
+            for (X_batch,) in loader:
+                X_batch = X_batch.to(self.device)
+                logits = self.postprocessor(X_batch)
+                probs = torch.sigmoid(logits).cpu().numpy().flatten()
+                all_outputs.append(probs)
+
+        final_probs = np.concatenate(all_outputs)
+        return final_probs
 
     def _pack_probs(
         self,
@@ -303,6 +379,10 @@ class RAGognizer(HallucinationDetector):
 
             logits = self.mlp(states)
             probs = torch.sigmoid(logits).detach().cpu().flatten()
+
+        if self.postprocessor is not None:
+            assistant_first_token_index = len(self.tokenize_chat(original_chat[:-1], add_generation_prompt=True)[0])
+            probs[assistant_first_token_index:] = self.postprocess(probs[assistant_first_token_index:])
 
         if verbose:
             text_row = ""
@@ -451,7 +531,7 @@ class RAGognizer(HallucinationDetector):
             _pad_token_tensor=None,
             max_new_tokens=max_new_tokens,
             do_sample=do_sample,
-            temperature=temperature,
+            temperature=temperature if do_sample else None,
             eos_token_id=self.tokenizer.eos_token_id
         )
 
@@ -472,6 +552,8 @@ class RAGognizer(HallucinationDetector):
                             "role": "assistant",
                             "content": response,
                         }]
+                        if self.postprocessor is not None:
+                            probs = self.postprocess(probs)
                         scores = self._pack_probs(
                             probs=probs,
                             input_ids=output.sequences[:, -len(probs):],
@@ -506,6 +588,7 @@ if __name__ == "__main__":
     parser.add_argument("--cpdir", default=None, help="Checkpoint directory (if not using repo_name)")
     parser.add_argument("--device", type=str, default="cuda", help="Device to run the model on")
     parser.add_argument("--mlp", action="store_true", default=False, help="Use separate MLP instead of transformer_heads library")
+    parser.add_argument("--pp", action="store_true", default=False, help="Use separate post-processing MLP on the token scores to boost token-level detection performance")
     args = parser.parse_args()
 
     # Example usage:
@@ -519,6 +602,7 @@ if __name__ == "__main__":
             use_transformer_heads_library=not args.mlp,
             checkpoint_dir=args.cpdir,
             device=args.device,
+            use_postprocessor=args.pp,
         )
 
         result1 = ragognizer.predict(
@@ -539,7 +623,7 @@ if __name__ == "__main__":
             verbose=True,
         )
 
-        response = ragognizer.generate([
+        response, scores = ragognizer.generate([
             {
                 "role": "user",
                 "content": (
