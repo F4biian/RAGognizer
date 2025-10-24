@@ -1,5 +1,5 @@
 from dotenv import find_dotenv, load_dotenv
-load_dotenv(find_dotenv(), override=True) # TODO: temp
+load_dotenv(find_dotenv(), override=True)
 
 import gradio as gr
 import threading
