@@ -5,7 +5,7 @@ import numpy as np
 import os
 import gc
 import jinja2
-from typing import Literal
+from typing import Iterator, Literal
 import torch
 from ragognizer.detectors.detector import HallucinationDetector
 import torch.nn as nn
@@ -34,7 +34,7 @@ class PostProcessor(torch.nn.Module):
         )
 
     def forward(self, x):
-        return self.seq(x)
+        return self.seq(x.float())
 
 class MLP(nn.Module):
     def __init__(self, input_size, hidden_dims):
@@ -56,7 +56,7 @@ class MLP(nn.Module):
         }
 
     def forward(self, x):
-        return self.network(x)
+        return self.network(x.float())
 
 
 class RAGognizer(HallucinationDetector):
@@ -74,6 +74,7 @@ class RAGognizer(HallucinationDetector):
         use_transformer_heads_library: bool=True,
         use_postprocessor: bool=False,
         postprocessor_batch_size: int=256,
+        in_bfloat16: bool=True,
     ) -> None:
         """
         Initialize the RAGognizer detector.
@@ -99,6 +100,8 @@ class RAGognizer(HallucinationDetector):
         self.use_postprocessor = use_postprocessor
         self.device = device
         self.postprocessor_batch_size = postprocessor_batch_size
+
+        dtype = torch.bfloat16 if in_bfloat16 else torch.float32
 
         if checkpoint_dir is None:
             repo_dir = snapshot_download(ragognizer_repo_name, repo_type="model")
@@ -161,6 +164,7 @@ class RAGognizer(HallucinationDetector):
                 model_class,
                 checkpoint_dir,
                 device_map=device,
+                torch_dtype=dtype,
                 new_emb_size=(len(self.tokenizer)+embeddings_offset) if embeddings_offset > 0 else None,
             )
             self.binarization_threshold = other_data.get("binarization_threshold", None)
@@ -179,7 +183,7 @@ class RAGognizer(HallucinationDetector):
             with open(other_data_path, "r") as f:
                 other_data = json.load(f)
 
-            self.llm = AutoModelForCausalLM.from_pretrained(other_data["original_repo_id"], device_map=device)
+            self.llm = AutoModelForCausalLM.from_pretrained(other_data["original_repo_id"], device_map=device, dtype=dtype)
             self.llm = PeftModel.from_pretrained(self.llm, checkpoint_dir).merge_and_unload()
 
             self.mlp = MLP(**mlp_cfg)
@@ -510,6 +514,85 @@ class RAGognizer(HallucinationDetector):
         else:
             return self._aggregate_to_response_level(token_level_pred=pred)
         
+    def stream_generate(
+        self,
+        chat: list[dict[str, str]],
+        max_new_tokens: int = 512,
+    ) -> Iterator[tuple[str, torch.Tensor]]:
+        input_ids = self.tokenizer.apply_chat_template(
+            chat, add_generation_prompt=True, return_tensors="pt"
+        ).to(self.device)
+
+        past_key_values = None
+        last_token_id = None
+        generated_token_ids = []
+        previous_decoded_text = ""
+
+        all_raw_probs = []
+        for _ in range(max_new_tokens):
+            if past_key_values is None:
+                model_inputs = {"input_ids": input_ids}
+            else:
+                model_inputs = {"input_ids": last_token_id}
+
+            with torch.no_grad():
+                outputs = self.llm(
+                    **model_inputs,
+                    past_key_values=past_key_values,
+                    use_cache=True,
+                    output_hidden_states=True,
+                )
+
+            if self.use_transformer_heads:
+                last_logit = None
+                for key in outputs.preds_by_head:
+                    if "hallu" in key:
+                        last_logit = outputs.preds_by_head[key].flatten()[-1]
+                        break
+                prob = torch.sigmoid(last_logit).cpu().detach().numpy()
+
+                next_token_logits = outputs.preds_by_head["lm_head"][:, -1, :]
+                next_token_id = torch.argmax(next_token_logits, dim=-1).item()
+                if next_token_id == self.tokenizer.eos_token_id:
+                    break
+            else:
+                # Select the next token (greedy decoding)
+                next_token_logits = outputs.logits[:, -1, :]
+                next_token_id = torch.argmax(next_token_logits, dim=-1).item()
+                if next_token_id == self.tokenizer.eos_token_id:
+                    break
+                
+                # Extract the hidden state for the generated token
+                layer_i = int((len(outputs.hidden_states) - 1) * self.layer_perc) + 1
+                hidden_states = outputs.hidden_states[layer_i]
+                last_token_hidden_state = hidden_states[:, -1, :]
+
+                logits = self.mlp(last_token_hidden_state.to(self.device))
+                prob = torch.sigmoid(logits).detach().cpu().flatten().item()
+
+            all_raw_probs.append(prob)
+            if self.postprocessor is not None:
+                prob = self.postprocess(np.array(all_raw_probs))[-1]
+                
+            pred = (1 if prob >= self.binarization_threshold else 0) if self.binarization_threshold is not None else None
+
+            generated_token_ids.append(next_token_id)
+            full_decoded_text = self.tokenizer.decode(generated_token_ids, skip_special_tokens=True)
+            new_text_chunk = full_decoded_text[len(previous_decoded_text):]
+            previous_decoded_text = full_decoded_text
+
+            yield {
+                "start": len(full_decoded_text) - len(new_text_chunk),
+                "end": len(full_decoded_text),
+                "text": new_text_chunk,
+                "prob": prob,
+                "pred": pred
+            }
+
+            # Update state for the next iteration
+            past_key_values = outputs.past_key_values
+            last_token_id = torch.tensor([[next_token_id]], device=self.device)
+
     def generate(
         self,
         chat: list[dict[str, str]],
@@ -539,7 +622,8 @@ class RAGognizer(HallucinationDetector):
             self.llm.generation_config = gen_config
 
         input_ids = self.tokenizer.apply_chat_template(chat, add_generation_prompt=True, return_tensors="pt")
-        output = self.llm.generate(torch.tensor(input_ids.tolist()).to("cuda"), generation_config=gen_config)
+    
+        output = self.llm.generate(torch.tensor(input_ids.tolist()).to(self.device), generation_config=gen_config)
         assistant_starts_at = len(input_ids[0])
 
         if self.use_transformer_heads:
@@ -623,7 +707,7 @@ if __name__ == "__main__":
             verbose=True,
         )
 
-        response, scores = ragognizer.generate([
+        res, scores = ragognizer.generate([
             {
                 "role": "user",
                 "content": (
@@ -633,4 +717,16 @@ if __name__ == "__main__":
                 ),
             }
         ])
-        print(response)
+        print(res)
+
+        # for tok in ragognizer.stream_generate([
+        #     {
+        #         "role": "user",
+        #         "content": (
+        #             "Use this context to shortly answer the user's question:\n"
+        #             "<context>\nAlbert Einstein developed the theory of relativity in the early 20th century and won the Nobel Prize in Physics in 1921.\n</context>\n\n"
+        #             "<user>When did Einstein develop the theory of relativity and what did he win the Nobel Prize for?</user>"
+        #         ),
+        #     }
+        # ]):
+        #     print(tok)
