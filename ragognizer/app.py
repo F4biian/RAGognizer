@@ -146,8 +146,8 @@ with gr.Blocks(css=custom_css, theme=gr.themes.Soft()) as demo:
   - **≤ 0.65** — Yellow
   - **≤ 0.85** — Orange
   - **≤ 1.00** — Red
-- This space uses [F4biian/RAGognizer-Qwen3-4B-Instruct-2507](https://huggingface.co/F4biian/RAGognizer-Qwen3-4B-Instruct-2507) (bfloat16 & transformer heads library with a post-processing MLP on the final token scores). It sometimes struggles with showing emojis.
-- Tip: When writing RAG prompts, clearly separate the provided context from the user’s request. For example, start with a directive such as “Only use the following information” to help the model distinguish between the two. You can also structure your prompt using tags (e.g., <context> ... </context> and <user> ... </user>) to ensure the model correctly understands what information it should rely on.
+- This space uses [**F4biian/RAGognizer-Qwen3-4B-Instruct-2507**](https://huggingface.co/F4biian/RAGognizer-Qwen3-4B-Instruct-2507) (bfloat16 & transformer heads library with a **post-processing MLP** on the final token scores). It sometimes struggles with showing emojis.
+- **Tip**: When writing RAG prompts, clearly separate the provided context from the user’s request. For example, start with a directive such as “Only use the following information” to help the model distinguish between the two. You can also structure your prompt using tags (e.g., ```<context> ... </context>``` and ```<user> ... </user>```) to ensure the model correctly understands what information it should rely on.
         """
     )
 
