@@ -8,7 +8,7 @@ from ragognizer.detectors.RAGognizer import RAGognizer
 
 
 model_lock = threading.Lock()
-detector = RAGognizer(use_postprocessor=True)
+detector = RAGognizer(use_postprocessor=False)
 def interpolate_color(score):
     if score <= 0.4:
         # White
@@ -146,7 +146,7 @@ with gr.Blocks(css=custom_css, theme=gr.themes.Soft()) as demo:
   - **≤ 0.65** — Yellow
   - **≤ 0.85** — Orange
   - **≤ 1.00** — Red
-- This space uses [**F4biian/RAGognizer-Qwen3-4B-Instruct-2507**](https://huggingface.co/F4biian/RAGognizer-Qwen3-4B-Instruct-2507) (bfloat16 & transformer heads library with a **post-processing MLP** on the final token scores). It sometimes struggles with showing emojis.
+- This space uses [**F4biian/RAGognizer-Qwen3-4B-Instruct-2507**](https://huggingface.co/F4biian/RAGognizer-Qwen3-4B-Instruct-2507) (bfloat16 & transformer heads library **without** a post-processing MLP** on the final token scores). It sometimes struggles with showing emojis.
 - **Tip**: When writing RAG prompts, clearly separate the provided context from the user’s request. For example, start with a directive such as “Only use the following information” to help the model distinguish between the two. You can also structure your prompt using tags (e.g., ```<context> ... </context>``` and ```<user> ... </user>```) to ensure the model correctly understands what information it should rely on.
         """
     )
@@ -165,6 +165,17 @@ with gr.Blocks(css=custom_css, theme=gr.themes.Soft()) as demo:
 
                 gr.Examples(
                     examples=[
+                        # Example 0 — Hallucination
+                        [
+                            "",
+                            """Context: The capital of France is Rome.
+Based solely on the provided context, answer this query: What is the capital of France?""",
+                            """Hi, thank you for reaching out!
+The capital of France is Paris. It’s home to millions of people.
+Do you have any other questions I can help you with?""",
+                            "❌"
+                        ],
+
                         # Example 1 — No Hallucination
                         [
                             "Only use the following information.",
