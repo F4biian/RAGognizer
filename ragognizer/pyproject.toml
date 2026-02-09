@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ragognizer"
+version = "0.1.0"
+description = "Token-Level Hallucination Detection for LLMs"
+readme = "README.md"
+authors = [
+  { name = "F4biian" }
+]
+license = { text = "MIT" }
+dependencies = [
+    "transformers>=4.57.1",
+    "python-dotenv>=1.1.1",
+    "git+https://github.com/F4biian/transformer-heads.git",
+    "protobuf>=6.33.0",
+    "sentencepiece>=0.2.1",
+    "openai>=2.15.0",
+    "scikit-learn>=1.7.2"
+]
+requires-python = ">= 3.10"
+
+[project.urls]
+Homepage = "https://github.com/F4biian/RAGognizer"
+Issues = "https://github.com/F4biian/RAGognizer/issues"

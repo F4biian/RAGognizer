@@ -1,13 +1,51 @@
 import copy
 import gc
+import json
+import os
 import random
 from typing import Any, Literal
 import numpy as np
 import torch
 from tqdm import tqdm
+from openai import OpenAI
+import time
 from sklearn.metrics import precision_score, recall_score, average_precision_score, f1_score, confusion_matrix, roc_auc_score, auc
 
 from ragognizer.detectors.detector import HallucinationDetector
+from ragognizer.benchmarks.llm_inference import generate_response
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+def call_openrouter(open_router, llm_name, chat, max_retries=3):
+    for _ in range(max_retries):
+        response = open_router.chat.completions.create(
+            model=llm_name,
+            messages=chat,
+            n=1,
+            temperature=0.7,
+            max_tokens=500
+        )
+        text = response.choices[0].message.content
+        if text and text.strip():
+            return text
+    return ""
+
+def sample_responses(
+    open_router,
+    llm_name,
+    chat,
+    samples_per_response,
+    max_workers=None
+):
+    samples = []
+    with ThreadPoolExecutor(max_workers=max_workers or samples_per_response) as executor:
+        futures = [
+            executor.submit(call_openrouter, open_router, llm_name, chat)
+            for _ in range(samples_per_response)
+        ]
+        for future in as_completed(futures):
+            samples.append(future.result())
+
+    return samples
 
 class Benchmark:
     def __init__(
@@ -21,6 +59,9 @@ class Benchmark:
         self.benchmarks = benchmarks
         self.ignore_post_hallucination = ignore_post_hallucination
         self.max_entries = max_entries
+        self.cache_file_path = os.getenv("CACHE_GENERATION_FILE")
+        self.max_samples = 100
+        self.samples_per_response = 5
 
     def _limit(self, entries: list) -> list:
         if self.max_entries is None or self.max_entries >= len(entries):
@@ -265,16 +306,19 @@ class Benchmark:
                 last_label = None
                 for tok in pred:
                     if tok["end"] - tok["start"] > 0:
-                        true_label = np.max(label_by_char[tok["start"]:tok["end"]])
+                        char_slice = label_by_char[tok["start"]:tok["end"]]
+                        
+                        if char_slice.size > 0:
+                            true_label = np.max(char_slice)
 
-                        if self.ignore_post_hallucination:
-                            if last_label == 1 and true_label == 0:
-                                break
-                            last_label = true_label
+                            if self.ignore_post_hallucination:
+                                if last_label == 1 and true_label == 0:
+                                    break
+                                last_label = true_label
 
-                        true_labels.append(true_label)
-                        pred_labels.append(tok["pred"])
-                        pred_probs.append(tok["prob"])
+                            true_labels.append(true_label)
+                            pred_labels.append(tok["pred"])
+                            pred_probs.append(tok["prob"])
             else:
                 true_labels.append(annotations)
                 pred_labels.append(pred["pred"])
@@ -286,6 +330,18 @@ class Benchmark:
 
         return self._metrics_from_arrays(true_labels, pred_labels, pred_probs)
 
+    def get_all_train_entries(
+        self,
+        token_level: bool
+    ) -> list[dict[str, str | list[str]]] | None:
+        return self.get_train_entries(token_level=token_level)
+
+    def get_train_entries(
+        self,
+        token_level: bool
+    ) -> list[dict[str, str | list[str]]] | None:
+        return None
+
     def run_on_benchmark(
         self,
         benchmark: "Benchmark",
@@ -295,7 +351,15 @@ class Benchmark:
             "response_level": [],
             "token_level": [],
         }
-        token_level_entries = benchmark.get_entries(token_level=True)
+
+        train_entries = benchmark.get_all_train_entries(token_level=True)
+        if train_entries:
+            detector.fit(entries=train_entries, token_level=True)
+        else:
+            train_entries = benchmark.get_all_train_entries(token_level=False)
+            detector.fit(entries=train_entries, token_level=False)
+
+        token_level_entries = benchmark.get_all_entries(token_level=True)
 
         data_to_aggregate = False
 
@@ -321,7 +385,7 @@ class Benchmark:
                 torch.cuda.empty_cache()
                 gc.collect()
 
-        response_level_entries = benchmark.get_entries(token_level=False)
+        response_level_entries = benchmark.get_all_entries(token_level=False)
 
         if detector.aggregate_response_level_from_token_level and data_to_aggregate:
             if response_level_entries:
@@ -405,9 +469,153 @@ class Benchmark:
                     "metrics": metrics
                 }
             } 
-        
+    
+    def get_all_entries(
+        self,
+        token_level: bool
+    ) -> list[dict[str, str | list[str]]] | None:
+        entries = self.get_entries(token_level=token_level)
+        if entries:
+            entries = self.generate_samples(entries=entries)
+
+        if entries:
+            for e in entries:
+                if "llm_name" in e:
+                    del e["llm_name"]
+
+        return entries
+
     def get_entries(
         self,
         token_level: bool
     ) -> list[dict[str, str | list[str]]] | None:
         pass
+
+    def read_sample_generation_cache(self) -> dict:
+        if os.path.exists(self.cache_file_path):
+            with open(self.cache_file_path, "r") as file:
+                return json.load(file)
+        return {}
+
+    def write_sample_generation_cache(self, samples: dict) -> None:
+        with open(self.cache_file_path, "w") as file:
+            json.dump(samples, file, ensure_ascii=False)
+
+    def generate_samples(
+        self,
+        entries: list,
+    ) -> list[dict[str, str | list[str]]]:
+        if not entries:
+            return entries
+
+        sample_cache = self.read_sample_generation_cache()
+        if self.name not in sample_cache:
+            sample_cache[self.name] = {}
+
+        open_router = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=os.getenv("OPENROUTER_API_KEY"),
+        )
+
+        local_llm_names = {
+            "meta-llama/llama-2-7b-chat": "meta-llama/Llama-2-7b-chat-hf",
+            "qwen/qwen-7b-chat": "Qwen/Qwen-7B-Chat",
+            "lmsys/vicuna-7b-v1.5": "lmsys/vicuna-7b-v1.5",
+            "lmsys/vicuna-33b-v1.3": "lmsys/vicuna-33b-v1.3",
+            "meta-llama/llama-2-13b-chat": "meta-llama/Llama-2-13b-chat-hf",
+            "mistralai/mistral-7b-instruct-v0.1": "mistralai/Mistral-7B-Instruct-v0.1",
+            "mistralai/mistral-7b-instruct-v0.3": "mistralai/Mistral-7B-Instruct-v0.3", 
+            "meta-llama/llama-2-70b-chat": "meta-llama/Llama-2-70b-chat-hf",
+            "google/palm-2-chat-bison": "google/gemma-3-12b-it", # Palm not available any more -> picking gemma 3 12b due to similar MMLU performance (~75-80%, https://ai.google/static/documents/palm2techreport.pdf) and google proximity
+        }
+
+        open_router_names = {
+            "openai/gpt-3.5-turbo-0613": "openai/gpt-3.5-turbo-0613",
+            "openai/gpt-4": "openai/gpt-4",
+            "google/gemini-2.5-flash": "google/gemini-2.5-flash",
+        }
+
+        if len(entries) <= self.max_samples:
+            indices_to_sample = list(range(len(entries)))
+        else:
+            indices_to_sample = list(random.Random(432).sample(range(len(entries)), self.max_samples))
+
+        i_and_llm_pairs = []
+        for i in indices_to_sample:
+            i_and_llm_pairs.append((i, entries[i]["llm_name"]))
+        i_and_llm_pairs.sort(key=lambda p: p[1])
+
+        for (i, _) in tqdm(i_and_llm_pairs, desc="Generating samples"):
+            entry = entries[i]
+            chat = entry["chat"]
+            document = entry["document"]
+            documents = entry["documents"]
+            user = entry["user"]
+            response = entry["response"]
+            response_samples = entry["response_samples"]
+            llm_name = entry["llm_name"]
+
+            # If there is no LLM that generated the response, we will fallback to gemini 2.5 flash
+            if llm_name is None:
+                llm_name = "google/gemini-2.5-flash"
+
+            if response_samples is not None and len(response_samples) > 0:
+                continue
+
+            if documents is None and document is not None:
+                documents = [document]
+
+            # If chat is not given, but other parts, then build an artificial chat
+            if (
+                chat is None and \
+                documents is not None and \
+                response is not None
+            ):
+                context = "\n\n".join(documents)
+                user_message = f"""<context>{context}</context>"""
+                if user is not None:
+                    user_message += f"\n\n<user>{user}</user>"
+
+                chat = [
+                    # Ignoring system message
+                    {
+                        "role": "user",
+                        "content": user_message
+                    },
+                    {
+                        "role": "assistant",
+                        "content": response
+                    }
+                ]
+
+            # If required input is missing, cannot predict (-> return None)
+            if chat is None:
+                print(f"Could not find or construct chat for sample at index {i}!")
+                continue
+            
+            samples = sample_cache[self.name].get(str(i), None)
+            if samples is None:
+                if llm_name in open_router_names:
+                    try:
+                        samples = sample_responses(open_router, open_router_names[llm_name], chat, self.samples_per_response)
+                    except Exception as e:
+                        print(f"Could not sample responses for chat {i}: {chat}")
+                        print(e)
+                        continue
+                    time.sleep(3)
+                elif llm_name in local_llm_names:
+                    samples = []
+                    for _ in range(self.samples_per_response):
+                        samples.append(generate_response(local_llm_names[llm_name], chat, temperature=0.7, max_new_tokens=500))
+                else:
+                    print(f"WARNING! Could not find suitable LLM for string '{llm_name}'")
+                    continue
+
+                sample_cache[self.name][str(i)] = samples
+                self.write_sample_generation_cache(sample_cache)
+
+            entries[i]["documents"] = documents
+            entries[i]["chat"] = chat
+            entries[i]["response_samples"] = samples
+
+        return entries

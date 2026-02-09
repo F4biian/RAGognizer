@@ -160,13 +160,24 @@ class RAGognizer(HallucinationDetector):
 
             # Account for a potentially added PAD token (offset of 1)
             embeddings_offset = other_data.get("new_embeddings_added", 0)
-            self.llm = load_lora_with_heads(
-                model_class,
-                checkpoint_dir,
-                device_map=device,
-                torch_dtype=dtype,
-                new_emb_size=(len(self.tokenizer)+embeddings_offset) if embeddings_offset > 0 else None,
-            )
+            try:
+                # Try with `new_emb_size` (needed when fine-tuning required adding a new pad token)
+                # This requires a small change in the file `.venv/lib/python3.10/site-packages/transformer_heads/util/load_model.py`: Add `new_emb_size = None,` in line 142 and add
+                # `if new_emb_size is not None: model.resize_token_embeddings(new_emb_size)` in line 195.
+                self.llm = load_lora_with_heads(
+                    model_class,
+                    checkpoint_dir,
+                    device_map=device,
+                    torch_dtype=dtype,
+                    new_emb_size=(len(self.tokenizer)+embeddings_offset) if embeddings_offset > 0 else None,
+                )
+            except:
+                self.llm = load_lora_with_heads(
+                    model_class,
+                    checkpoint_dir,
+                    device_map=device,
+                    torch_dtype=dtype,
+                )
             self.binarization_threshold = other_data.get("binarization_threshold", None)
         else:
             weights_path = os.path.join(repo_dir, "mlp_state.pt")
