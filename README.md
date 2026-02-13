@@ -60,12 +60,13 @@ The Gradio UI lives in `ragognizer/app.py` and launches a demo.
 ## Use as a Library
 `RAGognizer` provides token-level hallucination scores (and optionally response-level aggregation).
 
-Install via
+**Installation**:
 
 ```sh
 pip install ragognizer
 ```
 
+**Usage**:
 ```python
 from ragognizer.detectors.RAGognizer import RAGognizer
 
