@@ -134,12 +134,12 @@ cd ragognize
 sh install.sh
 
 # Would run the entire dataset creation pipeline.
-# WARNING: It could take days or even up to weeks depending on hardware and amount of data.
-# It also requires environment variables being set in `.env`.
 sh run.sh
 ```
-
-`run.sh` executes the full pipeline (scraping → prompt generation → LLM outputs → annotation).
+> [!WARNING]
+> **`run.sh` executes the full pipeline (scraping → prompt generation → LLM outputs → annotation).**  
+> It could take days or even up to weeks depending on hardware and amount of data.
+> It also requires environment variables being set in `.env` (incl. `GOOGLE_API_KEY`, and thus an already setup payment).
 
 ---
 
