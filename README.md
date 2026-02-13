@@ -74,6 +74,12 @@ Here's an example of the UI (detection tab):
 
 **Installation**:
 
+<div style="border: 3px solid #ff4d4f; background-color: #ffecec; padding: 16px; border-radius: 8px;">
+  <h2 style="margin-top: 0;">⚠️ WARNING</h2>
+  <p><strong>This library is experimental and will not be maintained in the future!</strong></p>
+  <p>It enforces the usage of old and unmaintained libraries.</p>
+</div>
+
 ```sh
 pip install ragognizer
 ```
