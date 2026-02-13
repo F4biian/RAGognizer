@@ -60,6 +60,7 @@ python3 -m venv .venv && . .venv/bin/activate && python -m pip install -U pip &&
 3. (Optional) Configure environment variables from `.env.sample` and set them in a new `.env` file. (Would only use `HF_HOME` or `HF_TOKEN`)
 4. Run `app.py` (it calls `demo.launch()` on startup).
 
+Here's an example of the UI (detection tab):
 
 <p align="center">
   <img src="media/UI_Example.png" alt="Screenshot of the Gradio UI" style="width: 80%;">
