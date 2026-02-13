@@ -15,7 +15,7 @@ A clean, minimal repo for **token-level hallucination detection** and **hallucin
 ## Quick Links
 - **Try it fast:** [Run the UI](#run-the-ui)
 - **RAGognize and RAGognizer models:** [Dataset & Models](#dataset--models)
-- **Use in code:** [Use as a library](#use-as-a-library)
+- **Use in code:** [Use as a Library](#use-as-a-library)
 - **Fine-tune your own model:** [Fine-Tuning](#fine-tuning)
 - **Generate data:** [Dataset Pipeline (ragognize)](#dataset-pipeline-ragognize)
 - **Paper & citation:** [Paper](#paper), [Citation](#citation)
@@ -57,7 +57,7 @@ The Gradio UI lives in `ragognizer/app.py` and launches a demo.
 
 ---
 
-## Use as a library
+## Use as a Library
 `RAGognizer` provides token-level hallucination scores (and optionally response-level aggregation).
 
 Install via
