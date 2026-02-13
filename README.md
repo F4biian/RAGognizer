@@ -1,11 +1,15 @@
 # RAGognizer
 **Hallucination-Aware Fine-Tuning via Detection Head Integration**
 
-![RAGognizer logo](media/Logo%202.jpg)
+<p align="center">
+  <img src="media/Logo%202.jpg" alt="RAGognizer logo" style="width: 60%;">
+</p>
 
 A clean, minimal repo for **token-level hallucination detection** and **hallucination-aware fine-tuning**. This README is designed to help **researchers**, **builders**, and **curious users** find exactly what they need quickly.
 
-**Status:** Pre-release. Paper + public release coming soon.
+<p align="center">
+  <img src="media/Inference.jpg" alt="Example visualization" style="width: 60%;">
+</p>
 
 ## Quick Links
 - **Try it fast:** [Run the UI](#run-the-ui)
@@ -49,8 +53,6 @@ The Gradio UI lives in `ragognizer/app.py` and launches a demo.
 2. Install dependencies listed in `ragognizer/pyproject.toml`.
 3. (Optional) Configure environment variables from `.env.sample`.
 4. Run `ragognizer/app.py` (it calls `demo.launch()` on startup).
-
-![UI screenshot](media/Inference.jpg)
 
 ---
 
