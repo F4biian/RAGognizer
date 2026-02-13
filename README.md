@@ -118,7 +118,7 @@ sh demo_ft.sh
 ```
 
 **Entry point**
-- `fine-tuning/ft.py` is the main training script. It might require adapting some of the underlying libraries and extending `PAD_TOKEN` and `model_type_map`.
+- `fine-tuning/ft.py` is the main training script. It might require adapting some of the underlying libraries and extending variables like `PAD_TOKEN` and `model_type_map`.
 - `fine-tuning/inference_demo.py` contains a small usage example of the fine-tuned model.
 
 ---
