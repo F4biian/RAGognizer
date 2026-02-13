@@ -163,23 +163,32 @@ with gr.Blocks(css=custom_css, theme=gr.themes.Soft()) as demo:
                 hallucination_status = gr.Textbox(value="", visible=False)
                 analyze_button = gr.Button("Analyze", variant="primary")
 
-                gr.Examples(
-                    examples=[
-                        # Example 0 — Hallucination
-                        [
-                            "",
-                            """Context: The capital of France is Rome.
+            output_display_detect = gr.HTML(label="Analyzed Response")
+            max_score_display = gr.Label(label="Result")
+
+            analyze_button.click(
+                fn=detect_and_color,
+                inputs=[system_prompt_input, prompt_input_detect, response_input],
+                outputs=[output_display_detect, max_score_display]
+            )
+            
+            gr.Examples(
+                examples=[
+                    # Example 0 — Hallucination
+                    [
+                        "",
+                        """Context: The capital of France is Rome.
 Based solely on the provided context, answer this query: What is the capital of France?""",
-                            """Hi, thank you for reaching out!
+                        """Hi, thank you for reaching out!
 The capital of France is Paris. It’s home to millions of people.
 Do you have any other questions I can help you with?""",
-                            "❌"
-                        ],
+                        "❌"
+                    ],
 
-                        # Example 1 — No Hallucination
-                        [
-                            "Only use the following information.",
-                            """<context>
+                    # Example 1 — No Hallucination
+                    [
+                        "Only use the following information.",
+                        """<context>
 The Leaning Tower of Pisa is located in Pisa, Italy, and is famous for its unintended tilt.
 Construction began in the 12th century and continued over 199 years due to wars.
 Engineers have performed stabilization work to prevent further tilting.
@@ -189,14 +198,14 @@ Pisa Cathedral and the Pisa Baptistery are part of the same Piazza dei Miracoli 
 The tower is mainly constructed of white and grey marble.
 </context>
 <user>Where is the Leaning Tower of Pisa located?</user>""",
-                            "The Leaning Tower of Pisa is located in Pisa, Italy.",
-                            "✅"
-                        ],
+                        "The Leaning Tower of Pisa is located in Pisa, Italy.",
+                        "✅"
+                    ],
 
-                        # Example 2 — No Hallucination
-                        [
-                            "Only use the following information.",
-                            """<context>
+                    # Example 2 — No Hallucination
+                    [
+                        "Only use the following information.",
+                        """<context>
 The human body contains several vital organs. The heart pumps blood throughout the body and has four chambers.
 The lungs supply oxygen to the blood and remove carbon dioxide.
 The liver processes nutrients and detoxifies chemicals.
@@ -205,14 +214,14 @@ The brain is part of the central nervous system and is responsible for cognition
 It is protected by the skull and surrounded by cerebrospinal fluid.
 </context>
 <user>What is the primary function of the brain?</user>""",
-                            "The primary function of the brain is to control cognition, memory, and motor functions.",
-                            "✅"
-                        ],
+                        "The primary function of the brain is to control cognition, memory, and motor functions.",
+                        "✅"
+                    ],
 
-                        # Example 3 — Has Hallucination
-                        [
-                            "Only use the following information.",
-                            """<context>
+                    # Example 3 — Has Hallucination
+                    [
+                        "Only use the following information.",
+                        """<context>
 Saturn is a gas giant planet in our solar system known for its rings made mostly of ice particles.
 It has 83 confirmed moons, one of the largest being Titan.
 Voyager and Cassini have both studied Saturn up close.
@@ -221,14 +230,14 @@ Titan has a dense, nitrogen-rich atmosphere and surface lakes of liquid hydrocar
 Titan orbits Saturn roughly every 16 Earth days.
 </context>
 <user>How many moons does Saturn have?</user>""",
-                            "Saturn has 85 moons in total, with Titan being the largest.",
-                            "❌"
-                        ],
+                        "Saturn has 85 moons in total, with Titan being the largest.",
+                        "❌"
+                    ],
 
-                        # Example 4 — Has Hallucination
-                        [
-                            "Only use the following information.",
-                            """<context>
+                    # Example 4 — Has Hallucination
+                    [
+                        "Only use the following information.",
+                        """<context>
 Marie Curie was a physicist and chemist known for pioneering research on radioactivity.
 She discovered the elements polonium and radium.
 She won two Nobel Prizes: one in Physics and one in Chemistry.
@@ -239,166 +248,158 @@ Curie worked in Paris at the Sorbonne.
 Her husband, Pierre Curie, collaborated closely with her scientific work.
 </context>
 <user>Which Nobel Prizes did Marie Curie receive?</user>""",
-                            "Marie Curie received Nobel Prizes in Physics, Chemistry, and later one in Medicine for her contributions to radiation therapy.",
-                            "❌"
-                        ],
-
-                        # Example 5 — Has no Hallucination
-                        [
-                            """Only use the following information to answer the user's question. Do not rely on outside knowledge. Base your answer entirely on the docs below and follow them content-wise (not necessarily word-for-word). Do not invent anything.""",
-                            """Only use the information from there provided documents: <context>
-<doc id="a01" source="official">
-Project Nebula – Internal Storage Overview (Rev 4.1, approved)
-- Standard storage tier: S3-compatible bucket "neb-data-prod"
-- Encryption: AES-256, server-side only
-- Default retention: 365 days
-- File size limit: 100 MB per object
-</doc>
-
-<doc id="a02" source="draft">
-Nebula storage supports objects up to 120 MB. Retention currently 360 days.
-</doc>
-
-<doc id="a03" source="admin">
-Retention policy (consolidated notes)
-- Production: 365 days
-- Exceptions exist for staging (180 days)
-Note: Some early docs mention 366 days for leap-year alignment, but not applied.
-</doc>
-
-<doc id="a04" source="official">
-Project Nebula Authentication
-- Access token length: 48 characters
-- Token pattern: alphanumeric only (A–Z, a–z, 0–9)
-- Renew interval: 24 hours
-</doc>
-
-<doc id="a05">
-Dev chatter (outdated)
-Tokens used to be 50 chars long incl. dashes.
-</doc>
-
-<doc id="a06" source="official">
-Nebula Logging Configuration
-- Log archive: "neb-log-arch"
-- Log retention: 30 days
-- Compression: GZIP
-</doc>
-
-<doc id="a07">
-Confluence page (typos)
-File limt maybe 100mb but some says 101 MB durin beta.
-</doc>
-
-<doc id="a08" source="official">
-Approved Interfaces
-- Storage tier: S3-compatible
-- Must use prefix: "neb/" for all stored objects
-- Public access: forbidden
-</doc>
-
-<doc id="a09">
-Old spreadsheet (contradict)
-Retention: 366 days
-</doc>
-
-<doc id="a10" source="official">
-Release Notes Snippet (final)
-Reminder: Token length is fixed at 48. No punctuation allowed.
-</doc>
-</context>
-<user>
-What is the maximum file size per object in storage, the default retention period, and the token length?
-</user>
-Answer in one concise line and cite the doc ids you used in brackets.""",
-                            """According to the current and officially approved Nebula documentation, the maximum file size per object in storage in the S3-compatible “neb-data-prod” bucket is 100 MB, and objects are retained by default for 365 days in production environments under the standard policy. Additionally, access into Nebula requires an authentication token that is always exactly 48 alphanumeric characters long, with no punctuation allowed. [a01, a03, a04, a10]""",
-                            "✅"
-                        ],
-
-                        # Example 6 — Has Hallucination
-                        [
-                            """Only use the following information to answer the user's question. Do not rely on outside knowledge. Base your answer entirely on the docs below and follow them content-wise (not necessarily word-for-word). Do not invent anything.""",
-                            """Only use the information from there provided documents: <context>
-<doc id="a01" source="official">
-Project Nebula – Internal Storage Overview (Rev 4.1, approved)
-- Standard storage tier: S3-compatible bucket "neb-data-prod"
-- Encryption: AES-256, server-side only
-- Default retention: 365 days
-- File size limit: 100 MB per object
-</doc>
-
-<doc id="a02" source="draft">
-Nebula storage supports objects up to 120 MB. Retention currently 360 days.
-</doc>
-
-<doc id="a03" source="admin">
-Retention policy (consolidated notes)
-- Production: 365 days
-- Exceptions exist for staging (180 days)
-Note: Some early docs mention 366 days for leap-year alignment, but not applied.
-</doc>
-
-<doc id="a04" source="official">
-Project Nebula Authentication
-- Access token length: 48 characters
-- Token pattern: alphanumeric only (A–Z, a–z, 0–9)
-- Renew interval: 24 hours
-</doc>
-
-<doc id="a05">
-Dev chatter (outdated)
-Tokens used to be 50 chars long incl. dashes.
-</doc>
-
-<doc id="a06" source="official">
-Nebula Logging Configuration
-- Log archive: "neb-log-arch"
-- Log retention: 30 days
-- Compression: GZIP
-</doc>
-
-<doc id="a07">
-Confluence page (typos)
-File limt maybe 100mb but some says 101 MB durin beta.
-</doc>
-
-<doc id="a08" source="official">
-Approved Interfaces
-- Storage tier: S3-compatible
-- Must use prefix: "neb/" for all stored objects
-- Public access: forbidden
-</doc>
-
-<doc id="a09">
-Old spreadsheet (contradict)
-Retention: 366 days
-</doc>
-
-<doc id="a10" source="official">
-Release Notes Snippet (final)
-Reminder: Token length is fixed at 48. No punctuation allowed.
-</doc>
-</context>
-<user>
-What is the maximum file size per object in storage, the default retention period, and the token length?
-</user>
-Answer in one concise line and cite the doc ids you used in brackets.""",
-                            """Based on the officially maintained Nebula documentation, any individual file uploaded to the “neb-data-prod” storage tier can be up to 100 MB in size, and the platform’s default production retention period is set to 366 days to ensure long-term storage. Nebula authentication uses fixed-length access tokens that are always 48 alphanumeric characters and are required to be renewed every 24 hours. [a01, a03, a04, a10]""",
-                            "❌"
-                        ],
+                        "Marie Curie received Nobel Prizes in Physics, Chemistry, and later one in Medicine for her contributions to radiation therapy.",
+                        "❌"
                     ],
-                    inputs=[system_prompt_input, prompt_input_detect, response_input, hallucination_status],
-                    label="📌 Click an Example to Auto-Fill the Inputs"
-                )
 
-            output_display_detect = gr.HTML(label="Analyzed Response")
-            max_score_display = gr.Label(label="Result")
+                    # Example 5 — Has no Hallucination
+                    [
+                        """Only use the following information to answer the user's question. Do not rely on outside knowledge. Base your answer entirely on the docs below and follow them content-wise (not necessarily word-for-word). Do not invent anything.""",
+                        """Only use the information from there provided documents: <context>
+<doc id="a01" source="official">
+Project Nebula – Internal Storage Overview (Rev 4.1, approved)
+- Standard storage tier: S3-compatible bucket "neb-data-prod"
+- Encryption: AES-256, server-side only
+- Default retention: 365 days
+- File size limit: 100 MB per object
+</doc>
 
-            analyze_button.click(
-                fn=detect_and_color,
-                inputs=[system_prompt_input, prompt_input_detect, response_input],
-                outputs=[output_display_detect, max_score_display]
+<doc id="a02" source="draft">
+Nebula storage supports objects up to 120 MB. Retention currently 360 days.
+</doc>
+
+<doc id="a03" source="admin">
+Retention policy (consolidated notes)
+- Production: 365 days
+- Exceptions exist for staging (180 days)
+Note: Some early docs mention 366 days for leap-year alignment, but not applied.
+</doc>
+
+<doc id="a04" source="official">
+Project Nebula Authentication
+- Access token length: 48 characters
+- Token pattern: alphanumeric only (A–Z, a–z, 0–9)
+- Renew interval: 24 hours
+</doc>
+
+<doc id="a05">
+Dev chatter (outdated)
+Tokens used to be 50 chars long incl. dashes.
+</doc>
+
+<doc id="a06" source="official">
+Nebula Logging Configuration
+- Log archive: "neb-log-arch"
+- Log retention: 30 days
+- Compression: GZIP
+</doc>
+
+<doc id="a07">
+Confluence page (typos)
+File limt maybe 100mb but some says 101 MB durin beta.
+</doc>
+
+<doc id="a08" source="official">
+Approved Interfaces
+- Storage tier: S3-compatible
+- Must use prefix: "neb/" for all stored objects
+- Public access: forbidden
+</doc>
+
+<doc id="a09">
+Old spreadsheet (contradict)
+Retention: 366 days
+</doc>
+
+<doc id="a10" source="official">
+Release Notes Snippet (final)
+Reminder: Token length is fixed at 48. No punctuation allowed.
+</doc>
+</context>
+<user>
+What is the maximum file size per object in storage, the default retention period, and the token length?
+</user>
+Answer in one concise line and cite the doc ids you used in brackets.""",
+                        """According to the current and officially approved Nebula documentation, the maximum file size per object in storage in the S3-compatible “neb-data-prod” bucket is 100 MB, and objects are retained by default for 365 days in production environments under the standard policy. Additionally, access into Nebula requires an authentication token that is always exactly 48 alphanumeric characters long, with no punctuation allowed. [a01, a03, a04, a10]""",
+                        "✅"
+                    ],
+
+                    # Example 6 — Has Hallucination
+                    [
+                        """Only use the following information to answer the user's question. Do not rely on outside knowledge. Base your answer entirely on the docs below and follow them content-wise (not necessarily word-for-word). Do not invent anything.""",
+                        """Only use the information from there provided documents: <context>
+<doc id="a01" source="official">
+Project Nebula – Internal Storage Overview (Rev 4.1, approved)
+- Standard storage tier: S3-compatible bucket "neb-data-prod"
+- Encryption: AES-256, server-side only
+- Default retention: 365 days
+- File size limit: 100 MB per object
+</doc>
+
+<doc id="a02" source="draft">
+Nebula storage supports objects up to 120 MB. Retention currently 360 days.
+</doc>
+
+<doc id="a03" source="admin">
+Retention policy (consolidated notes)
+- Production: 365 days
+- Exceptions exist for staging (180 days)
+Note: Some early docs mention 366 days for leap-year alignment, but not applied.
+</doc>
+
+<doc id="a04" source="official">
+Project Nebula Authentication
+- Access token length: 48 characters
+- Token pattern: alphanumeric only (A–Z, a–z, 0–9)
+- Renew interval: 24 hours
+</doc>
+
+<doc id="a05">
+Dev chatter (outdated)
+Tokens used to be 50 chars long incl. dashes.
+</doc>
+
+<doc id="a06" source="official">
+Nebula Logging Configuration
+- Log archive: "neb-log-arch"
+- Log retention: 30 days
+- Compression: GZIP
+</doc>
+
+<doc id="a07">
+Confluence page (typos)
+File limt maybe 100mb but some says 101 MB durin beta.
+</doc>
+
+<doc id="a08" source="official">
+Approved Interfaces
+- Storage tier: S3-compatible
+- Must use prefix: "neb/" for all stored objects
+- Public access: forbidden
+</doc>
+
+<doc id="a09">
+Old spreadsheet (contradict)
+Retention: 366 days
+</doc>
+
+<doc id="a10" source="official">
+Release Notes Snippet (final)
+Reminder: Token length is fixed at 48. No punctuation allowed.
+</doc>
+</context>
+<user>
+What is the maximum file size per object in storage, the default retention period, and the token length?
+</user>
+Answer in one concise line and cite the doc ids you used in brackets.""",
+                        """Based on the officially maintained Nebula documentation, any individual file uploaded to the “neb-data-prod” storage tier can be up to 100 MB in size, and the platform’s default production retention period is set to 366 days to ensure long-term storage. Nebula authentication uses fixed-length access tokens that are always 48 alphanumeric characters and are required to be renewed every 24 hours. [a01, a03, a04, a10]""",
+                        "❌"
+                    ],
+                ],
+                inputs=[system_prompt_input, prompt_input_detect, response_input, hallucination_status],
+                label="📌 Click an Example to Auto-Fill the Inputs"
             )
+
 
         with gr.TabItem("Generation", id=1):
             gr.Markdown("Enter a (RAG) prompt and press Enter or click 'Submit'. The response will be shown below, with each token's background color corresponding to its hallucination score.")
@@ -411,11 +412,24 @@ Answer in one concise line and cite the doc ids you used in brackets.""",
                 )
                 submit_button_gen = gr.Button("Submit", variant="primary", scale=1)
 
-                gr.Examples(
-                    examples=[
-                        # Example 1
-                        [
-                            """<context>
+
+            output_display_gen = gr.HTML(label="Model Output")
+            max_score_display_gen = gr.Label(label="Result")
+
+            def clear_input():
+                return ""
+
+            submit_action = submit_button_gen.click(
+                fn=generate_stream,
+                inputs=prompt_input_gen,
+                outputs=[output_display_gen, max_score_display_gen]
+            )
+            
+            gr.Examples(
+                examples=[
+                    # Example 1
+                    [
+                        """<context>
 The Leaning Tower of Pisa is located in Pisa, Italy, and is famous for its unintended tilt.
 Construction began in the 12th century and continued over 199 years due to wars.
 Engineers have performed stabilization work to prevent further tilting.
@@ -425,11 +439,11 @@ Pisa Cathedral and the Pisa Baptistery are part of the same Piazza dei Miracoli 
 The tower is mainly constructed of white and grey marble.
 </context>
 <user>Where is the Leaning Tower of Pisa located?</user>""",
-                        ],
+                    ],
 
-                        # Example 2
-                        [
-                            """<context>
+                    # Example 2
+                    [
+                        """<context>
 The human body contains several vital organs. The heart pumps blood throughout the body and has four chambers.
 The lungs supply oxygen to the blood and remove carbon dioxide.
 The liver processes nutrients and detoxifies chemicals.
@@ -438,11 +452,11 @@ The brain is part of the central nervous system and is responsible for cognition
 It is protected by the skull and surrounded by cerebrospinal fluid.
 </context>
 <user>What is the primary function of the brain?</user>""",
-                        ],
+                    ],
 
-                        # Example 3
-                        [
-                            """<context>
+                    # Example 3
+                    [
+                        """<context>
 Saturn is a gas giant planet in our solar system known for its rings made mostly of ice particles.
 It has 83 confirmed moons, one of the largest being Titan.
 Voyager and Cassini have both studied Saturn up close.
@@ -451,11 +465,11 @@ Titan has a dense, nitrogen-rich atmosphere and surface lakes of liquid hydrocar
 Titan orbits Saturn roughly every 16 Earth days.
 </context>
 <user>How many moons does Saturn have?</user>""",
-                        ],
+                    ],
 
-                        # Example 4
-                        [
-                            """<context>
+                    # Example 4
+                    [
+                        """<context>
 Marie Curie was a physicist and chemist known for pioneering research on radioactivity.
 She discovered the elements polonium and radium.
 She won two Nobel Prizes: one in Physics and one in Chemistry.
@@ -466,11 +480,11 @@ Curie worked in Paris at the Sorbonne.
 Her husband, Pierre Curie, collaborated closely with her scientific work.
 </context>
 <user>Which Nobel Prizes did Marie Curie receive?</user>""",
-                        ],
+                    ],
 
-                        # Example 5
-                        [
-                            """Only use the information from there provided documents: <context>
+                    # Example 5
+                    [
+                        """Only use the information from there provided documents: <context>
 <doc id="a01" source="official">
 Project Nebula – Internal Storage Overview (Rev 4.1, approved)
 - Standard storage tier: S3-compatible bucket "neb-data-prod"
@@ -535,23 +549,12 @@ Reminder: Token length is fixed at 48. No punctuation allowed.
 What is the maximum file size per object in storage, the default retention period, and the token length?
 </user>
 Answer in one concise line and cite the doc ids you used in brackets.""",
-                        ],
                     ],
-                    inputs=[prompt_input_gen],
-                    label="📌 Click an Example to Auto-Fill the Inputs"
-                )
-
-            output_display_gen = gr.HTML(label="Model Output")
-            max_score_display_gen = gr.Label(label="Result")
-
-            def clear_input():
-                return ""
-
-            submit_action = submit_button_gen.click(
-                fn=generate_stream,
-                inputs=prompt_input_gen,
-                outputs=[output_display_gen, max_score_display_gen]
+                ],
+                inputs=[prompt_input_gen],
+                label="📌 Click an Example to Auto-Fill the Inputs"
             )
+
 
 demo.queue()
 demo.launch()

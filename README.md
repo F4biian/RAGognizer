@@ -20,6 +20,8 @@ A clean, minimal repo for **token-level hallucination detection** and **hallucin
 - **Generate data:** [Dataset Pipeline (ragognize)](#dataset-pipeline-ragognize)
 - **Paper & citation:** [Paper](#paper), [Citation](#citation)
 
+> NOTE: The code enforces the usage of old versions of libraries and libraries that are not maintained anymore.
+
 ---
 
 ## Paper
@@ -50,10 +52,19 @@ A clean, minimal repo for **token-level hallucination detection** and **hallucin
 The Gradio UI lives in `ragognizer/app.py` and launches a demo.
 
 **Steps**
-1. Create a Python 3.10 environment.
-2. Install dependencies listed in `ragognizer/pyproject.toml`.
-3. (Optional) Configure environment variables from `.env.sample`.
-4. Run `ragognizer/app.py` (it calls `demo.launch()` on startup).
+1. Create a Python 3.10 environment and install dependencies listed in `ragognizer/pyproject.toml`, e.g.:
+```sh
+cd ragognizer
+python3 -m venv .venv && . .venv/bin/activate && python -m pip install -U pip && pip install -e .
+```
+3. (Optional) Configure environment variables from `.env.sample` and set them in a new `.env` file. (Would only use `HF_HOME` or `HF_TOKEN`)
+4. Run `app.py` (it calls `demo.launch()` on startup).
+
+
+<p align="center">
+  <img src="media/UI_Example.png" alt="Screenshot of the Gradio UI" style="width: 80%;">
+</p>
+
 
 ---
 
