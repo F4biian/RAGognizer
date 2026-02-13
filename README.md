@@ -1,14 +1,15 @@
-# RAGognizer
-**Hallucination-Aware Fine-Tuning via Detection Head Integration**
-
 <p align="center">
   <img src="media/Logo%202.jpg" alt="RAGognizer logo" style="width: 60%;">
 </p>
 
+# RAGognizer
+**Hallucination-Aware Fine-Tuning via Detection Head Integration**
+
+
 A clean, minimal repo for **token-level hallucination detection** and **hallucination-aware fine-tuning**. This README is designed to help **researchers**, **builders**, and **curious users** find exactly what they need quickly.
 
 <p align="center">
-  <img src="media/Inference.jpg" alt="Example visualization" style="width: 60%;">
+  <img src="media/Inference.jpg" alt="Example visualization" style="width: 50%;">
 </p>
 
 ## Quick Links
