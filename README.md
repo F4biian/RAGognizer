@@ -1,26 +1,152 @@
 # RAGognizer
-Token-Level Hallucination Detection for LLMs
+**Hallucination-Aware Fine-Tuning via Detection Head Integration**
 
-<p align="center">
-    <a><img alt="Python 3.10.12" src="https://img.shields.io/badge/python-3.10.12-blue?style=for-the-badge"></a>
-    <a href="https://opensource.org/license/mit"><img alt="MIT" src="https://img.shields.io/badge/license-MIT-green.svg"></a>
-</p>
+![RAGognizer logo](media/Logo%202.jpg)
+
+A clean, minimal repo for **token-level hallucination detection** and **hallucination-aware fine-tuning**. This README is designed to help **researchers**, **builders**, and **curious users** find exactly what they need quickly.
+
+**Status:** Pre-release. Paper + public release coming soon.
 
 ## Quick Links
-- [Inference: Out-of-the-Box Hallucination Detection](#inference-out-of-the-box-hallucination-detection)
-- [Finetuning: Turning an LLM into a RAGognizer](#finetuning-turning-an-llm-into-a-ragognizer)
-- [Contribution: Add Your Own Benchmark Dataset](#contribution-add-your-own-benchmark-dataset)
-- [Contribution: Add An LLM to the Hallucination Detection Framework](#contribution-add-an-llm-to-the-hallucination-detection-framework)
+- **Try it fast:** [Run the UI](#run-the-ui)
+- **RAGognize and RAGognizer models:** [Dataset & Models](#dataset--models)
+- **Use in code:** [Use as a library](#use-as-a-library)
+- **Fine-tune your own model:** [Fine-Tuning](#fine-tuning)
+- **Generate data:** [Dataset Pipeline (ragognize)](#dataset-pipeline-ragognize)
+- **Paper & citation:** [Paper](#paper), [Citation](#citation)
 
+---
 
-## Inference: Out-of-the-Box Hallucination Detection
+## Paper
+- **Title:** RAGognizer: Hallucination-Aware Fine-Tuning via Detection Head Integration
+- **arXiv:** `<ARXIV_URL>`
 
+**Abstract:**
+> `<ABSTRACT_PLACEHOLDER>`
 
-## Finetuning: Turning an LLM into a RAGognizer
+---
 
+## Dataset & Models
 
-## Contribution: Add Your Own Benchmark Dataset
+**Datasets**:
+- Original RAGognize dataset: https://huggingface.co/datasets/F4biian/RAGognize
+- Original RAGognize dataset with samples (test split only): https://huggingface.co/datasets/F4biian/RAGognize-with-samples-test
 
+**Models**:
+- https://huggingface.co/F4biian/RAGognizer-Qwen3-4B-Instruct-2507
+- https://huggingface.co/F4biian/RAGognizer-Llama-2-7b-chat-hf
+- https://huggingface.co/F4biian/RAGognizer-Llama-3.1-8B-Instruct
+- https://huggingface.co/F4biian/RAGognizer-Mistral-7B-Instruct-v0.1
+- https://huggingface.co/F4biian/RAGognizer-Mistral-7B-Instruct-v0.3
 
-## Contribution: Add An LLM to the Hallucination Detection Framework
+--- 
 
+## Run the UI
+The Gradio UI lives in `ragognizer/app.py` and launches a demo.
+
+**Steps**
+1. Create a Python 3.10 environment.
+2. Install dependencies listed in `ragognizer/pyproject.toml`.
+3. (Optional) Configure environment variables from `.env.sample`.
+4. Run `ragognizer/app.py` (it calls `demo.launch()` on startup).
+
+![UI screenshot](media/Inference.jpg)
+
+---
+
+## Use as a library
+`RAGognizer` provides token-level hallucination scores (and optionally response-level aggregation).
+
+Install via
+
+```sh
+pip install ragognizer
+```
+
+```python
+from ragognizer.detectors.RAGognizer import RAGognizer
+
+detector = RAGognizer(use_postprocessor=False)
+
+chat = [
+    {"role": "user", "content": "Context: The wall is green. Based solely on the context: What color is the wall?"},
+    {"role": "assistant", "content": "The color of the wall is gray."},
+]
+
+scores = detector.predict(chat=chat, token_level=True)
+print(scores)
+```
+
+**Notes**
+- Default device is `cuda` (see `RAGognizer(..., device="cuda")`). Use `device="cpu"` if needed.
+- Token scores are dictionaries with `start`, `end`, `text`, `prob`, `pred`.
+
+---
+
+## Fine-Tuning
+Scripts and an example run live in `fine-tuning/`.
+
+**Observed commands**
+```sh
+cd fine-tuning
+
+# Creates `fine-tuning/.venv` and installs requirements 
+sh install.sh
+
+# Conduct an exemplary fine-tuning
+sh demo_ft.sh
+```
+
+**Entry point**
+- `fine-tuning/ft.py` is the main training script. It might require adapting some of the underlying libraries and extending `PAD_TOKEN` and `model_type_map`.
+- `fine-tuning/inference_demo.py` contains a small usage example of the fine-tuned model.
+
+---
+
+## Dataset Pipeline (ragognize)
+The dataset generation pipeline is in `ragognize/` and is **long-running**.
+
+**Observed commands**
+```sh
+cd ragognize
+
+# Creates `ragognize/.venv` and installs requirements 
+sh install.sh
+
+# Would run the entire dataset creation pipeline.
+# WARNING: It could take days or even up to weeks depending on hardware and amount of data.
+# It also requires environment variables being set in `.env`.
+sh run.sh
+```
+
+`run.sh` executes the full pipeline (scraping → prompt generation → LLM outputs → annotation).
+
+---
+
+## Environment Variables
+See `.env.sample` for (optional) configuration:
+- `HF_HOME`, `HF_TOKEN`
+- `OPENROUTER_API_KEY`, `CACHE_GENERATION_FILE`
+- `GOOGLE_API_KEY`
+
+`CACHE_GENERATION_FILE` is used for generating samples and storing them in that JSON file in order to prevent generating the same samples multiple times.
+
+---
+
+## Repo Structure
+- `ragognizer/` - inference package + Gradio UI
+- `ragognize/` - dataset generation pipeline
+- `fine-tuning/` - training scripts and demos
+- `media/` - images used in the README
+
+---
+
+## Citation
+```bibtex
+TODO
+```
+
+---
+
+## License & Data usage
+- **Code:** MIT (see `LICENSE`).
