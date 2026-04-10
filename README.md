@@ -13,6 +13,7 @@ A clean, minimal repo for **token-level hallucination detection** and **hallucin
 </p>
 
 ## Quick Links
+- **🤗 Browser Demo**: [Space: F4biian/RAGognizer](https://huggingface.co/spaces/F4biian/RAGognizer)
 - **Try it fast:** [Run the UI](#run-the-ui)
 - **RAGognize and RAGognizer models:** [Dataset & Models](#dataset--models)
 - **Use in code:** [Use as a Library](#use-as-a-library)
