@@ -180,5 +180,5 @@ See `.env.sample` for (optional) configuration:
 
 ---
 
-## License & Data usage
+## License
 - **Code:** MIT (see `LICENSE`).
