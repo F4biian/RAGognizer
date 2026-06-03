@@ -80,6 +80,12 @@ Here's an example of the UI (detection tab):
 > It enforces the usage of old and unmaintained libraries.
 
 ```sh
+pip install "git+https://github.com/F4biian/RAGognizer.git#subdirectory=ragognizer"
+```
+
+OR:
+
+```sh
 git clone https://github.com/F4biian/RAGognizer.git
 cd RAGognizer/ragognizer
 python3 -m venv .venv && . .venv/bin/activate && python -m pip install -U pip && pip install -e .
